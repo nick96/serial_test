@@ -9,6 +9,8 @@ mod tests {
 
     lazy_static! {
         static ref LOCK: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
+        static ref MULTI_KEY_LOCK_1: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
+        static ref MULTI_KEY_LOCK_2: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
     }
 
     fn init() {
@@ -101,5 +103,35 @@ mod tests {
     async fn test_async_can_return() -> Result<(), ()> {
         init();
         Ok(())
+    }
+
+    #[test]
+    #[serial(multikey_1, multikey_2)]
+    fn test_serial_multiple_keys() {
+        init();
+        MULTI_KEY_LOCK_1.store(1, Ordering::Relaxed);
+        thread::sleep(Duration::from_millis(200));
+        assert_eq!(MULTI_KEY_LOCK_1.load(Ordering::Relaxed), 1);
+        MULTI_KEY_LOCK_2.store(1, Ordering::Relaxed);
+        thread::sleep(Duration::from_millis(200));
+        assert_eq!(MULTI_KEY_LOCK_2.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    #[serial(multikey_1)]
+    fn test_serial_multiple_keys_dependant_1() {
+        init();
+        MULTI_KEY_LOCK_1.store(2, Ordering::Relaxed);
+        thread::sleep(Duration::from_millis(100));
+        assert_eq!(MULTI_KEY_LOCK_1.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    #[serial(multikey_2)]
+    fn test_serial_multiple_keys_dependant_2() {
+        init();
+        MULTI_KEY_LOCK_2.store(2, Ordering::Relaxed);
+        thread::sleep(Duration::from_millis(100));
+        assert_eq!(MULTI_KEY_LOCK_2.load(Ordering::Relaxed), 2);
     }
 }
