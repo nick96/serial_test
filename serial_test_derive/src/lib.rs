@@ -4,7 +4,7 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
-use proc_macro2::TokenTree;
+use proc_macro2::{Punct, TokenTree};
 use proc_macro_error::{abort_call_site, proc_macro_error};
 use quote::quote;
 use std::ops::Deref;
@@ -65,17 +65,48 @@ fn serial_core(
     input: proc_macro2::TokenStream,
 ) -> proc_macro2::TokenStream {
     let attrs = attr.into_iter().collect::<Vec<TokenTree>>();
-    let key = match attrs.len() {
-        0 => "".to_string(),
+    let keys = match attrs.len() {
+        0 => vec!["".to_string()],
         1 => {
             if let TokenTree::Ident(id) = &attrs[0] {
-                id.to_string()
+                vec![id.to_string()]
             } else {
                 panic!("Expected a single name as argument, got {:?}", attrs);
             }
         }
-        n => {
-            panic!("Expected either 0 or 1 arguments, got {}: {:?}", n, attrs);
+        _ => {
+            let mut keys = if let TokenTree::Ident(id) = &attrs[0] {
+                vec![id.to_string()]
+            } else {
+                panic!("Expected a name as the first argument, got {:?}", attrs);
+            };
+            let mut expecting_name = false;
+            let mut expecting_comma = true;
+
+            for (i, attr) in attrs[1..].iter().enumerate() {
+                if expecting_comma {
+                    if let TokenTree::Punct(punct) = attr {
+                        if punct.as_char() != ',' {
+                            panic!("Expecting comma at token {}, got {:?}", i, attr);
+                        }
+                    } else {
+                        panic!("Expecting comma at token {}, got {:?}", i, attr);
+                    }
+                    expecting_name = true;
+                    expecting_comma = false;
+                } else if expecting_name {
+                    if let TokenTree::Ident(id) = attr {
+                        keys.push(id.to_string());
+                    } else {
+                        panic!("Expected a name at token {}, got {:?}", i, attr);
+                    }
+                    expecting_comma = true;
+                    expecting_name = false;
+                } else {
+                    panic!("Unexpected token {:?} at {}", attr, i);
+                }
+            }
+            keys
         }
     };
     let ast: syn::ItemFn = syn::parse2(input).unwrap();
@@ -114,14 +145,14 @@ fn serial_core(
                 #(#attrs)
                 *
                 async fn #name () -> #ret {
-                    serial_test::async_serial_core_with_return(#key, || async #block ).await;
+                    #(serial_test::async_serial_core_with_return(#keys, || async #block ).await);*
                 }
             },
             None => quote! {
                 #(#attrs)
                 *
                 fn #name () -> #ret {
-                    serial_test::serial_core_with_return(#key, || #block )
+                    #(serial_test::serial_core_with_return(#keys, || #block ));*
                 }
             },
         }
@@ -131,14 +162,14 @@ fn serial_core(
                 #(#attrs)
                 *
                 async fn #name () {
-                    serial_test::async_serial_core(#key, || async #block ).await;
+                    #(serial_test::async_serial_core(#keys, || async #block ).await);*
                 }
             },
             None => quote! {
                 #(#attrs)
                 *
                 fn #name () {
-                    serial_test::serial_core(#key, || #block );
+                    #(serial_test::serial_core(#keys, || #block ));*
                 }
             },
         }
